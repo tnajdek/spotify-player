@@ -101,6 +101,32 @@ impl AppData {
         })
     }
 
+    /// Check if a context has been sorted by the user
+    pub fn is_context_sorted(&self, id: &ContextId) -> bool {
+        self.caches
+            .context
+            .get(&id.uri())
+            .map(|c| match c {
+                Context::Playlist { sorted, .. }
+                | Context::Album { sorted, .. }
+                | Context::Artist { sorted, .. } => *sorted,
+                _ => false,
+            })
+            .unwrap_or(false)
+    }
+
+    /// Mark a context as sorted by the user
+    pub fn mark_context_sorted(&mut self, id: &ContextId) {
+        if let Some(c) = self.caches.context.get_mut(&id.uri()) {
+            match c {
+                Context::Playlist { sorted, .. }
+                | Context::Album { sorted, .. }
+                | Context::Artist { sorted, .. } => *sorted = true,
+                _ => {}
+            }
+        }
+    }
+
     pub fn context_tracks(&self, id: &ContextId) -> Option<&Vec<Track>> {
         let c = self.caches.context.get(&id.uri())?;
         Some(match c {

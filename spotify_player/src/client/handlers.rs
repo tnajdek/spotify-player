@@ -6,12 +6,15 @@ use tracing::Instrument;
 
 use crate::{
     config,
-    state::{ContextId, ContextPageType, ContextPageUIState, PageState, PlayableId, SharedState},
+    state::{
+        ContextId, ContextPageType, ContextPageUIState, PageState, PlayableId, Playback,
+        SharedState,
+    },
 };
 
 use crate::utils::map_join;
 
-use super::ClientRequest;
+use super::{ClientRequest, PlayerRequest};
 
 struct PlayerEventHandlerState {
     get_context_timer: Instant,
@@ -67,13 +70,49 @@ fn handle_playback_change_event(
         _ => return Ok(()),
     };
 
-    if let Some(progress) = player.playback_progress() {
-        // update the playback when the current track ends
-        if progress >= duration && playback.is_playing {
-            client_pub.send(ClientRequest::GetCurrentPlayback)?;
+    // Check if current track is ending and we need to auto-advance sorted batches
+    let track_ending = player
+        .playback_progress()
+        .map(|progress| progress >= duration && playback.is_playing)
+        .unwrap_or(false);
+
+    let id_uri = id.uri();
+
+    // Check if we need the next sorted batch (before dropping read lock)
+    let needs_next_batch = track_ending
+        && player
+            .sorted_playback
+            .as_ref()
+            .map(|s| s.is_last_in_batch(&id_uri) && s.has_next())
+            .unwrap_or(false);
+
+    // Drop the read lock before potentially taking a write lock
+    drop(player);
+
+    if track_ending {
+        client_pub.send(ClientRequest::GetCurrentPlayback)?;
+
+        // Auto-advance to next sorted batch if current batch is exhausted
+        if needs_next_batch {
+            let limit = config::get_config().app_config.tracks_playback_limit;
+            let next_batch = state
+                .player
+                .write()
+                .sorted_playback
+                .as_mut()
+                .and_then(|s| s.next_batch(limit));
+
+            if let Some(batch) = next_batch {
+                let first_uri = batch[0].uri();
+                client_pub.send(ClientRequest::Player(PlayerRequest::StartPlayback(
+                    Playback::URIs(batch, Some(rspotify::model::Offset::Uri(first_uri))),
+                    None,
+                )))?;
+            }
         }
     }
 
+    let player = state.player.read();
     if let Some(queue) = player.queue.as_ref() {
         // queue needs to be updated if its playing track is different from actual playback's playing track
         if let Some(queue_track) = queue.currently_playing.as_ref() {

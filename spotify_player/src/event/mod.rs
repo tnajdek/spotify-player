@@ -10,7 +10,7 @@ use crate::{
         ActionListItem, Album, AlbumId, Artist, ArtistFocusState, ArtistId, ArtistPopupAction,
         BrowsePageUIState, Context, ContextId, ContextPageType, ContextPageUIState, DataReadGuard,
         Focusable, Id, Item, ItemId, LibraryFocusState, LibraryPageUIState, PageState, PageType,
-        PlayableId, Playback, PlaylistCreateCurrentField, PlaylistFolderItem, PlaylistId,
+        PlayableId, Playback, PlaylistCreateCurrentField, PlaylistFolderItem, PlaylistId, SortedPlaybackState,
         PlaylistPopupAction, PopupState, SearchFocusState, SearchPageUIState, SharedState, ShowId,
         Track, TrackId, TrackOrder, TracksId, UIStateGuard, USER_LIKED_TRACKS_ID,
         USER_RECENTLY_PLAYED_TRACKS_ID, USER_TOP_TRACKS_ID,
@@ -571,10 +571,81 @@ fn handle_global_command(
             ui.is_running = false;
         }
         Command::NextTrack => {
-            client_pub.send(ClientRequest::Player(PlayerRequest::NextTrack))?;
+            let cross_batch = {
+                let player = state.player.read();
+                let current_uri = player
+                    .currently_playing()
+                    .and_then(|item| item.id())
+                    .map(|id| id.uri());
+                match (current_uri, &player.sorted_playback) {
+                    (Some(uri), Some(sorted))
+                        if sorted.is_last_in_batch(&uri) && sorted.has_next() =>
+                    {
+                        true
+                    }
+                    _ => false,
+                }
+            };
+            if cross_batch {
+                let limit = config::get_config().app_config.tracks_playback_limit;
+                let batch = state
+                    .player
+                    .write()
+                    .sorted_playback
+                    .as_mut()
+                    .and_then(|s| s.next_batch(limit));
+                if let Some(batch) = batch {
+                    let first_uri = batch[0].uri();
+                    client_pub.send(ClientRequest::Player(PlayerRequest::StartPlayback(
+                        Playback::URIs(
+                            batch,
+                            Some(rspotify::model::Offset::Uri(first_uri)),
+                        ),
+                        None,
+                    )))?;
+                }
+            } else {
+                client_pub.send(ClientRequest::Player(PlayerRequest::NextTrack))?;
+            }
         }
         Command::PreviousTrack => {
-            client_pub.send(ClientRequest::Player(PlayerRequest::PreviousTrack))?;
+            let cross_batch = {
+                let player = state.player.read();
+                let current_uri = player
+                    .currently_playing()
+                    .and_then(|item| item.id())
+                    .map(|id| id.uri());
+                match (current_uri, &player.sorted_playback) {
+                    (Some(uri), Some(sorted))
+                        if sorted.is_first_in_batch(&uri) && sorted.has_prev() =>
+                    {
+                        true
+                    }
+                    _ => false,
+                }
+            };
+            if cross_batch {
+                let limit = config::get_config().app_config.tracks_playback_limit;
+                let batch = state
+                    .player
+                    .write()
+                    .sorted_playback
+                    .as_mut()
+                    .and_then(|s| s.prev_batch(limit));
+                if let Some(batch) = batch {
+                    // Start from the last track of the previous batch
+                    let last_uri = batch[batch.len() - 1].uri();
+                    client_pub.send(ClientRequest::Player(PlayerRequest::StartPlayback(
+                        Playback::URIs(
+                            batch,
+                            Some(rspotify::model::Offset::Uri(last_uri)),
+                        ),
+                        None,
+                    )))?;
+                }
+            } else {
+                client_pub.send(ClientRequest::Player(PlayerRequest::PreviousTrack))?;
+            }
         }
         Command::ResumePause => {
             client_pub.send(ClientRequest::Player(PlayerRequest::ResumePause))?;

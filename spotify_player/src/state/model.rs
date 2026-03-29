@@ -24,16 +24,22 @@ pub enum Context {
     Playlist {
         playlist: Playlist,
         tracks: Vec<Track>,
+        #[serde(skip)]
+        sorted: bool,
     },
     Album {
         album: Album,
         tracks: Vec<Track>,
+        #[serde(skip)]
+        sorted: bool,
     },
     Artist {
         artist: Artist,
         top_tracks: Vec<Track>,
         albums: Vec<Album>,
         related_artists: Vec<Artist>,
+        #[serde(skip)]
+        sorted: bool,
     },
     Tracks {
         tracks: Vec<Track>,
@@ -238,6 +244,7 @@ impl Context {
             Context::Album {
                 ref album,
                 ref tracks,
+                ..
             } => format!(
                 "{} | {} | {} songs | {}",
                 album.name,
@@ -248,6 +255,7 @@ impl Context {
             Context::Playlist {
                 ref playlist,
                 tracks,
+                ..
             } => format!(
                 "{} | {} | {} songs | {}",
                 playlist.name,

@@ -567,7 +567,7 @@ impl AppClient {
             ClientRequest::AddAlbumToQueue(album_id) => {
                 let album_context = self.album_context(album_id).await?;
 
-                if let Context::Album { album: _, tracks } = album_context {
+                if let Context::Album { album: _, tracks, .. } = album_context {
                     for track in tracks {
                         self.add_item_to_queue(PlayableId::Track(track.id), None)
                             .await?;
@@ -1355,6 +1355,7 @@ impl AppClient {
         Ok(Context::Playlist {
             playlist: playlist.into(),
             tracks,
+            sorted: false,
         })
     }
 
@@ -1391,7 +1392,11 @@ impl AppClient {
             })
             .collect::<Vec<_>>();
 
-        Ok(Context::Album { album, tracks })
+        Ok(Context::Album {
+            album,
+            tracks,
+            sorted: false,
+        })
     }
 
     /// Get an artist context data
@@ -1435,6 +1440,7 @@ impl AppClient {
             top_tracks,
             albums,
             related_artists,
+            sorted: false,
         })
     }
 

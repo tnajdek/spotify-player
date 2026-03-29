@@ -730,7 +730,7 @@ async fn playlist_import(
     }
     // Get playlists' info
     let (from_tracks, from_name) = match client.playlist_context(import_from.clone()).await? {
-        Context::Playlist { tracks, playlist } => (
+        Context::Playlist { tracks, playlist, .. } => (
             tracks.into_iter().map(|t| TrackData {
                 id: t.id,
                 name: t.name,
@@ -740,7 +740,7 @@ async fn playlist_import(
         _ => unreachable!(),
     };
     let (to_tracks, to_name) = match client.playlist_context(import_to.clone()).await? {
-        Context::Playlist { tracks, playlist } => (
+        Context::Playlist { tracks, playlist, .. } => (
             tracks.into_iter().map(|t| TrackData {
                 id: t.id,
                 name: t.name,

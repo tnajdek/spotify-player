@@ -330,7 +330,7 @@ pub fn render_context_page(
                         (top_tracks, albums, related_artists),
                     );
                 }
-                Context::Playlist { tracks, playlist } => {
+                Context::Playlist { tracks, playlist, .. } => {
                     let rect = if playlist.desc.is_empty() {
                         rect
                     } else {

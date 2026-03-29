@@ -132,6 +132,7 @@ pub fn handle_command_for_focused_context_window(
             if let Some(tracks) = data.context_tracks_mut(context_id) {
                 tracks.sort_by(|x, y| order.compare(x, y));
             }
+            data.mark_context_sorted(context_id);
             return Ok(true);
         }
         // reverse ordering command
@@ -140,6 +141,7 @@ pub fn handle_command_for_focused_context_window(
             if let Some(tracks) = data.context_tracks_mut(context_id) {
                 tracks.reverse();
             }
+            data.mark_context_sorted(context_id);
             return Ok(true);
         }
     }
@@ -322,6 +324,10 @@ fn handle_command_for_track_table_window(
                 }
             }
 
+            // Clear any existing sorted playback state
+            state.player.write().sorted_playback = None;
+
+            let limit = config::get_config().app_config.tracks_playback_limit;
             let base_playback = match context_id {
                 None | Some(ContextId::Tracks(_)) => {
                     Playback::URIs(tracks.iter().map(|t| t.id.clone().into()).collect(), None)
@@ -329,13 +335,39 @@ fn handle_command_for_track_table_window(
                 Some(ContextId::Show(_)) => unreachable!(
                     "show context should be handled by handle_command_for_episode_table_window"
                 ),
+                Some(ref context_id) if data.is_context_sorted(context_id) => {
+                    // Sorted context -- send URIs to preserve sort order with batching
+                    let all_ids: Vec<PlayableId<'static>> =
+                        tracks.iter().map(|t| t.id.clone().into()).collect();
+                    let pos = all_ids
+                        .iter()
+                        .position(|id| id.uri() == uri)
+                        .unwrap_or(0);
+                    let end = std::cmp::min(pos + limit, all_ids.len());
+
+                    state.player.write().sorted_playback = Some(SortedPlaybackState {
+                        tracks: all_ids.clone(),
+                        batch_start: pos,
+                        batch_end: end,
+                    });
+
+                    let first_uri = all_ids[pos].uri();
+                    Playback::URIs(
+                        all_ids[pos..end].to_vec(),
+                        Some(rspotify::model::Offset::Uri(first_uri)),
+                    )
+                }
                 Some(context_id) => Playback::Context(context_id, None),
             };
 
+            let playback = match base_playback {
+                // For sorted playback, we already built the exact slice -- skip uri_offset
+                Playback::URIs(_, Some(_)) => base_playback,
+                _ => base_playback.uri_offset(uri, limit),
+            };
+
             client_pub.send(ClientRequest::Player(PlayerRequest::StartPlayback(
-                base_playback
-                    .uri_offset(uri, config::get_config().app_config.tracks_playback_limit),
-                None,
+                playback, None,
             )))?;
         }
         Command::ShowActionsOnSelectedItem => {
